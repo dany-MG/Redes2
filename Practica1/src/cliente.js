@@ -1,11 +1,12 @@
 import { flota } from '../models/flota.js';
 import { crearTablero, colocarFlotaRandom, colocarBarco } from '../utils/tablero.js';
 import dgram from 'dgram';
+import {text} from 'node:stream/consumers'
 
 const cliente = dgram.createSocket('udp4');
 
-const tableroServidor = crearTablero()
-colocarFlotaRandom(tableroServidor, flota)
+const tableroCliente = crearTablero()
+colocarFlotaRandom(tableroCliente, flota)
 
 // Evento para recibir la respuesta del servidor
 cliente.on('message', (msg, rinfo) => {
@@ -14,9 +15,9 @@ cliente.on('message', (msg, rinfo) => {
   cliente.close(); 
 });
 
-let mensajeTableroServidor = Buffer.from(JSON.stringify({tablero: tableroServidor}))
+let mensajeSolicitudInicial = Buffer.from(JSON.stringify({tipo: "solicitud", nombreCliente: "Dany"}))
 
-cliente.send(mensajeTableroServidor, 41234, 'localhost', (err) => {
+cliente.send(mensajeSolicitudInicial, 41234, 'localhost', (err) => {
   if (err) {
     console.error('Error al enviar el mensaje');
     cliente.close();
