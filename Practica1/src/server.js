@@ -1,12 +1,8 @@
-const dgram = require('dgram');
+import { flota } from '../models/flota.js';
+import { crearTablero, colocarFlotaRandom, colocarBarco } from '../utils/tablero.js';
+import dgram from 'dgram';
+
 const servidor = dgram.createSocket('udp4');
-
-const crearTablero = () => {
-    Array.from({length: 10}, () => Array(10).fill(0))
-}
-
-const tableroNaves = crearTablero()
-const tableroTiros = crearTablero()
 
 // Evento que se dispara cuando hay un error
 servidor.on('error', (err) => {
