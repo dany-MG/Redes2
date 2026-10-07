@@ -59,7 +59,7 @@ servidor.on('message', (msg, rinfo) => {
       console.log("Inicia tirando la PC")
      dispararPC()
     }
-  }else if(datosRecibidos.tipo === "tiro"){
+  }else if(datosRecibidos.tipo === "tiro"){ //tiro que da el cliente
     let res =  verificarDisparo(tableroNavesServer, datosRecibidos.fila, datosRecibidos.col)
     console.log(`Cliente disparó en [${datosRecibidos.fila}, ${datosRecibidos.col}] -> ${res.exito ? 'Acierto (X)' : 'Fallo (O)'}`);
     console.table(tableroNavesServer);
@@ -72,19 +72,37 @@ servidor.on('message', (msg, rinfo) => {
       exito: res.exito,
       barcoHundido: res.barcoHundido,
       idNave: res.idNave,
-      tirosRestantes
+      tirosRestantes,
+      juegoTerminado: res.juegoTerminado
     }))
     servidor.send(respuestaServer, cliente.port, cliente.address)
+
+    if (res.juegoTerminado) {
+      console.log(`\n¡FIN DEL JUEGO! El jugador ${cliente.nombre} ha hundido toda la flota de la PC.`);
+      cliente = null
+      tableroNavesServer = null
+      tableroTirosServer = null
+      return; 
+    }
 
     if(tirosRestantes === 0){
       tirosRestantes = 3
       setTimeout(dispararPC, 1500)
     }
-  }else if(datosRecibidos.tipo === "resultado_pc"){
-    tableroTirosServer[datosRecibidos.fila][datosRecibidos.columna] = datosRecibidos.exito ? 'X' : '0'
+  }else if(datosRecibidos.tipo === "tiro_pc"){
+    tableroTirosServer[datosRecibidos.fila][datosRecibidos.col] = datosRecibidos.exito ? 'X' : '0'
     console.log(`Resultado del tiro de PC en [${datosRecibidos.fila}, ${datosRecibidos.col}]: ${datosRecibidos.exito ? 'Acierto (X)' : 'Fallo (0)'}`)
     console.log("Tablero de tiros PC")
     console.table(tableroTirosServer)
+
+    if (datosRecibidos.juegoTerminado) {
+      console.log(`\n¡FIN DEL JUEGO! La PC ha hundido toda la flota de ${cliente.nombre}.`);
+      servidor.send(Buffer.from(JSON.stringify({ tipo: "fin_juego", ganador: "PC" })), cliente.port, cliente.address);
+      tableroNavesServer = null
+      tableroTirosServer = null
+      cliente = null
+      return;
+    }
 
     tirosRestantes = datosRecibidos.exito ? tirosRestantes - 1 : 0
 

@@ -1,70 +1,114 @@
 import { flota } from '../models/flota.js';
-import { crearTablero, colocarFlotaRandom, colocarBarco, verificarDisparo} from '../utils/tablero.js';
-import {pedirCoords} from '../utils/tiros.js'
+import { crearTablero, colocarBarco, colocarFlotaRandom, verificarDisparo } from '../utils/tablero.js';
 import dgram from 'dgram';
+import { WebSocketServer } from 'ws';
 
-const cliente = dgram.createSocket('udp4');
+const clienteUDP = dgram.createSocket('udp4');
+const wss = new WebSocketServer({ port: 8080 });
 
-let tableroFlotaCliente = crearTablero()
-let tableroTirosCliente = crearTablero()
+let wsFrontend = null;
+let tableroFlotaCliente = crearTablero();
+let tableroTirosCliente = crearTablero();
 
-let nombreUsuario = ""
+const enviarAlFrontend = (datos) => {
+  if (wsFrontend && wsFrontend.readyState === 1) {
+    wsFrontend.send(JSON.stringify(datos));
+  }
+};
 
-// Evento para recibir la respuesta del servidor
-cliente.on('message',async  (msg, rinfo) => {
-  let respuestaServidor = JSON.parse(msg.toString())
-  if(respuestaServidor.tipo === "inicio"){
-    // colocarBarcos() o colocoarFlotaRandom
-    console.log(`El servidor ha mandado: ${respuestaServidor.tipo}. Cliente acomoda tu flota...`)
-    colocarFlotaRandom(tableroFlotaCliente, flota)
-    console.log('[Cliente] Mi tablero:')
-    console.table(tableroFlotaCliente)
-    
-    let mColocacionFlota = Buffer.from(JSON.stringify({tipo : "colocacion_fin"}))
-    cliente.send(mColocacionFlota, 41234, 'localhost', (err) =>{
-      if(!err){
-        console.log("Aviso de listo enviado al servidor")
-      }else console.log(`Error: ${err}`)
-    })
-  }else if(respuestaServidor.tipo === "turno_cliente"){
-    await  pedirCoords(cliente, respuestaServidor.tirosRestantes)
+wss.on('connection', (ws) => {
+  wsFrontend = ws;
+  console.log('Interfaz Gráfica 3D conectada.');
 
-  }else if(respuestaServidor.tipo === "resultado_tiro"){
-    tableroTirosCliente[respuestaServidor.fila][respuestaServidor.col] = respuestaServidor.exito ? 'X' : '0'
-    console.log(`\nDisparo en [${respuestaServidor.fila}, ${respuestaServidor.col}]: ${respuestaServidor.exito ? '¡ACIERTO (X)!' : 'Fallo en agua (O)'}`)
-    if(respuestaServidor.barcoHundido) console.log(`Hundiste el barco con id: ${respuestaServidor.idNave} de la PC`)
-    console.log("Tu Tablero de Tiros (Ataques hechos a la PC):");
-    console.table(tableroTirosCliente);
+  ws.on('message', (msg) => {
+    const datos = JSON.parse(msg.toString());
 
-    if(respuestaServidor.tirosRestantes > 0){
-      await pedirCoords(cliente, respuestaServidor.tirosRestantes)
-    }else{
-      console.log("Termino tu turno. Esperando tiros de la PC...")
+    if (datos.tipo === 'iniciar_solicitud') {
+      tableroFlotaCliente = crearTablero();
+      tableroTirosCliente = crearTablero();
+      const mSolicitud = Buffer.from(JSON.stringify({
+        tipo: "solicitud",
+        nombreCliente: datos.nombre
+      }));
+      clienteUDP.send(mSolicitud, 41234, 'localhost');
     }
-  }else if(respuestaServidor.tipo === "turno_pc"){
-    let res = verificarDisparo(tableroFlotaCliente, respuestaServidor.fila, respuestaServidor.col)
-    console.log(`\nLa PC disparo en [${respuestaServidor.fila}, ${respuestaServidor.col}]: ${res.exito ? 'Te dieron (X)' : 'Fallo (0)'}`)
-    if(res.barcoHundido) console.log(`La PC hundio tu nave con ID: ${res.idNave}`)
-    console.log("Tu tablero de Naves actualizado")
-    console.table(tableroFlotaCliente)
+
+    else if (datos.tipo === 'colocar_barco_ui') {
+      const nave = flota[datos.indiceNave];
+      const exito = colocarBarco(tableroFlotaCliente, nave, datos.fila, datos.col, datos.esHorizontal);
+      enviarAlFrontend({
+        tipo: 'resultado_colocar',
+        exito,
+        fila: datos.fila,
+        col: datos.col,
+        esHorizontal: datos.esHorizontal,
+        nave,
+        indiceSiguiente: datos.indiceNave + 1,
+        totalNaves: flota.length
+      });
+    }
+
+    else if (datos.tipo === 'colocar_random_ui') {
+      tableroFlotaCliente = crearTablero(); // Limpiamos por si ya había puesto alguno manual
+      const posiciones = colocarFlotaRandom(tableroFlotaCliente, flota);
+      console.log('[Cliente] Flota generada aleatoriamente:');
+      console.table(tableroFlotaCliente);
+
+      enviarAlFrontend({
+        tipo: 'resultado_colocar_random',
+        posiciones
+      });
+    }
+
+    else if (datos.tipo === 'flota_lista_ui') {
+      const mFin = Buffer.from(JSON.stringify({ tipo: "colocacion_fin" }));
+      clienteUDP.send(mFin, 41234, 'localhost');
+    }
+
+    else if (datos.tipo === 'disparar_ui') {
+      const mTiro = Buffer.from(JSON.stringify({
+        tipo: "tiro",
+        fila: datos.fila,
+        col: datos.col
+      }));
+      clienteUDP.send(mTiro, 41234, 'localhost');
+    }
+  });
+});
+
+clienteUDP.on('message', (msg) => {
+  const respuestaServidor = JSON.parse(msg.toString());
+
+  if (respuestaServidor.tipo === "inicio") {
+    enviarAlFrontend({ tipo: "fase_colocacion", flota });
+  } 
+  else if (respuestaServidor.tipo === "turno_cliente") {
+    enviarAlFrontend({ tipo: "turno_cliente", tirosRestantes: respuestaServidor.tirosRestantes });
+  } 
+  else if (respuestaServidor.tipo === "resultado_tiro") {
+    tableroTirosCliente[respuestaServidor.fila][respuestaServidor.col] = respuestaServidor.exito ? 'X' : '0';
+    enviarAlFrontend(respuestaServidor);
+  } 
+  else if (respuestaServidor.tipo === "turno_pc") {
+    const res = verificarDisparo(tableroFlotaCliente, respuestaServidor.fila, respuestaServidor.col);
+    enviarAlFrontend({
+      tipo: "ataque_pc",
+      fila: respuestaServidor.fila,
+      col: respuestaServidor.col,
+      ...res
+    });
 
     const respuesta = Buffer.from(JSON.stringify({
-      tipo: "resultado_pc",
+      tipo: "tiro_pc",
       fila: respuestaServidor.fila,
       col: respuestaServidor.col,
       ...res
     }));
-    cliente.send(respuesta, 41234, 'localhost');
+    clienteUDP.send(respuesta, 41234, 'localhost');
+  } 
+  else if (respuestaServidor.tipo === "fin_juego") {
+    enviarAlFrontend({ tipo: "fin_juego", ganador: respuestaServidor.ganador });
   }
 });
 
-//TO DO: Implementar la solicitud del nombre del usuario.
-let mensajeSolicitudInicial = Buffer.from(JSON.stringify({tipo: "solicitud", nombreCliente: "Dany"}))
-cliente.send(mensajeSolicitudInicial, 41234, 'localhost', (err) => {
-  if (err) {
-    console.error('Error al enviar el mensaje');
-    cliente.close();
-  } else {
-    console.log('Solicitud de juego enviada al servidor...')
-  }
-});
+console.log('Puente Cliente UDP <-> Web3D activo en ws://localhost:8080');
