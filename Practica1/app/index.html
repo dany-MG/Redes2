@@ -1,11 +1,773 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <title>Batalla Naval 3D - UDP Datagramas</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #07111e; color: white; }
+    
+    /* Panel superior de control */
+    #ui-panel {
+      position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+      background: rgba(10, 25, 47, 0.9); padding: 15px 25px; border-radius: 10px;
+      border: 1px solid #00d2ff; text-align: center; z-index: 10; min-width: 440px;
+      box-shadow: 0 4px 20px rgba(0, 210, 255, 0.25);
+    }
+    h2 { margin: 0 0 8px 0; color: #00d2ff; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; }
+    #estado-txt { font-size: 15px; margin-bottom: 10px; color: #e0f2fe; }
+    input, button {
+      padding: 8px 14px; border-radius: 5px; border: none; font-size: 14px; margin: 4px;
+    }
+    input { background: #1e293b; color: white; border: 1px solid #475569; }
+    button { background: #0284c7; color: white; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+    button:hover { background: #0369a1; transform: translateY(-1px); }
+    #btn-random { background: #7c3aed; }
+    #btn-random:hover { background: #6d28d9; }
+    #btn-confirmar-flota { background: #10b981; display: none; }
+    #btn-confirmar-flota:hover { background: #059669; }
+
+    /* Etiquetas inferiores únicamente para los 2 tableros */
+    .etiqueta-tablero {
+      position: absolute; bottom: 25px; font-weight: bold; font-size: 16px;
+      background: rgba(0,0,0,0.65); padding: 8px 16px; border-radius: 6px; border-bottom: 3px solid #00d2ff;
+    }
+    #lbl-flota { left: 18%; }
+    #lbl-tiros { right: 18%; border-bottom-color: #f43f5e; }
+
+    /* Modal Central de Victoria / Derrota y Resumen */
+    #modal-overlay {
+      position: fixed; inset: 0; background: rgba(3, 9, 20, 0.85);
+      backdrop-filter: blur(6px); display: none; justify-content: center;
+      align-items: center; z-index: 100; animation: fadeIn 0.4s ease;
+    }
+    #modal-dialog {
+      background: linear-gradient(145deg, #0a192f, #0f172a);
+      border: 2px solid #00d2ff; border-radius: 14px; padding: 25px 30px;
+      width: 90%; max-width: 780px; max-height: 88vh; overflow-y: auto;
+      box-shadow: 0 0 35px rgba(0, 210, 255, 0.35); text-align: center;
+    }
+    #modal-titulo {
+      font-size: 32px; margin: 0 0 6px 0; text-transform: uppercase; letter-spacing: 2px;
+    }
+    .titulo-victoria { color: #00f5d4; text-shadow: 0 0 15px rgba(0, 245, 212, 0.5); }
+    .titulo-derrota { color: #f43f5e; text-shadow: 0 0 15px rgba(244, 63, 94, 0.5); }
+    #modal-subtitulo { color: #94a3b8; font-size: 15px; margin-bottom: 20px; }
+
+    /* Columnas del Resumen de Flotas */
+    .resumen-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; margin-bottom: 22px;
+    }
+    .columna-flota {
+      background: rgba(15, 23, 42, 0.8); border: 1px solid #1e293b;
+      border-radius: 10px; padding: 15px;
+    }
+    .columna-flota h3 {
+      margin: 0 0 12px 0; font-size: 16px; text-align: center;
+      padding-bottom: 8px; border-bottom: 2px solid #00d2ff; color: #e2e8f0;
+    }
+    .columna-flota.enemigo h3 { border-bottom-color: #f43f5e; }
+
+    /* Tarjeta de cada barco en el resumen */
+    .nave-card {
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(30, 41, 59, 0.65); padding: 8px 12px; border-radius: 8px;
+      margin-bottom: 8px; border-left: 4px solid #10b981;
+    }
+    .nave-card.hundida {
+      border-left-color: #f43f5e; background: rgba(69, 10, 26, 0.35); opacity: 0.85;
+    }
+    .nave-info { display: flex; flex-direction: column; gap: 2px; }
+    .nave-nombre { font-weight: bold; font-size: 14px; color: #f8fafc; }
+    .nave-longitud { font-size: 11px; color: #94a3b8; }
+    .nave-preview { flex: 1; display: flex; justify-content: center; padding: 0 10px; }
+    .badge-estado {
+      font-size: 11px; font-weight: bold; padding: 4px 8px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-flote { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
+    .badge-hundido { background: rgba(244, 63, 94, 0.2); color: #fb7185; border: 1px solid #e11d48; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
-    
+
+  <!-- Panel Superior -->
+  <div id="ui-panel">
+    <h2>Batalla Naval 3D</h2>
+    <div id="login-box">
+      <input type="text" id="nombre-input" placeholder="Nombre de jugador" value="Dany" />
+      <button id="btn-conectar">Solicitar Juego (UDP)</button>
+    </div>
+    <div id="estado-txt">Conéctate para iniciar la partida contra el Servidor.</div>
+    <div id="controles-colocacion" style="display:none;">
+      <button id="btn-rotar">Orientación: HORIZONTAL (R)</button>
+      <button id="btn-random">Colocar Aleatoriamente 🎲</button>
+      <button id="btn-confirmar-flota">Confirmar e Iniciar ✔</button>
+    </div>
+  </div>
+
+  <!-- Solo las 2 etiquetas de los tableros -->
+  <div id="lbl-flota" class="etiqueta-tablero">TU TABLERO DE NAVES (Defensa)</div>
+  <div id="lbl-tiros" class="etiqueta-tablero">TABLERO DE TIROS (Haz clic para atacar)</div>
+
+  <!-- Cuadro de Diálogo Central (Victoria / Derrota + Resumen) -->
+  <div id="modal-overlay">
+    <div id="modal-dialog">
+      <h1 id="modal-titulo">¡VICTORIA!</h1>
+      <div id="modal-subtitulo">Resumen final de las flotas en combate</div>
+      
+      <div class="resumen-grid">
+        <div class="columna-flota">
+          <h3 id="titulo-flota-jugador">TU FLOTA</h3>
+          <div id="lista-flota-jugador"></div>
+        </div>
+        <div class="columna-flota enemigo">
+          <h3>FLOTA DE LA PC (SERVIDOR)</h3>
+          <div id="lista-flota-pc"></div>
+        </div>
+      </div>
+
+      <button onclick="location.reload()" style="padding: 10px 24px; font-size: 15px;">
+        Jugar Nueva Partida
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // --- 1. CONFIGURACIÓN ESCENA THREE.JS ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x07111e);
+
+    // Cámara ligeramente más elevada para abarcar ambos cementerios laterales si aparecen barcos
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 22, 20);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.maxPolarAngle = Math.PI / 2.2;
+    controls.update();
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(15, 25, 15);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    // --- 2. CREACIÓN EXCLUSIVAMENTE DE LOS 2 TABLEROS 10x10 ---
+    const OFFSET_FLOTA_X = -6.5; // Izquierda: Tablero de Naves
+    const OFFSET_TIROS_X = 6.5;  // Derecha: Tablero de Tiros
+
+    const casillasFlota = [];
+    const casillasTiros = [];
+
+    const crearCuadricula3D = (offsetX, arregloDestino, colorAgua) => {
+      const grupo = new THREE.Group();
+      for (let f = 0; f < 10; f++) {
+        for (let c = 0; c < 10; c++) {
+          const geo = new THREE.BoxGeometry(0.92, 0.2, 0.92);
+          const mat = new THREE.MeshStandardMaterial({ color: colorAgua, roughness: 0.3, metalness: 0.2 });
+          const celda = new THREE.Mesh(geo, mat);
+          celda.position.set(offsetX + (c - 4.5), 0, (f - 4.5));
+          celda.receiveShadow = true;
+          celda.userData = { fila: f, col: c, atacada: false };
+          grupo.add(celda);
+          arregloDestino.push(celda);
+        }
+      }
+      scene.add(grupo);
+    };
+
+    crearCuadricula3D(OFFSET_FLOTA_X, casillasFlota, 0x0284c7);
+    crearCuadricula3D(OFFSET_TIROS_X, casillasTiros, 0x0f172a);
+
+    // --- 3. DISEÑO 3D DE LAS NAVES, FANTASMA, CEMENTERIOS DE AMBOS LADOS Y MISILES ---
+    let ocupacionLocal = Array.from({ length: 10 }, () => Array(10).fill(false));
+    const navesCliente3D = [];              // Modelos en el tablero del cliente
+    const mapaNavesTableroCliente = new Map(); // { idNave -> Group3D en el tablero }
+    const modelosClienteHundidos3D = new Map(); // Cementerio izquierdo (bajas propias)
+    const modelosEnemigos3D = new Map();        // Cementerio derecho (bajas de la PC)
+
+    const limpiarNavesCliente3D = () => {
+      navesCliente3D.forEach((m) => scene.remove(m));
+      navesCliente3D.length = 0;
+      mapaNavesTableroCliente.clear();
+      ocupacionLocal = Array.from({ length: 10 }, () => Array(10).fill(false));
+    };
+
+    const crearModeloNave3D = (nave, esFantasma = false) => {
+      const barcoGroup = new THREE.Group();
+      const lon = nave.longitud;
+      const opacidad = esFantasma ? 0.55 : 1.0;
+
+      if (nave.tipo.includes('Submarino')) {
+        const geoHull = new THREE.CapsuleGeometry(0.35, lon - 0.8, 8, 16);
+        const matSub = new THREE.MeshStandardMaterial({ 
+          color: 0x334155, metalness: 0.6, roughness: 0.4,
+          transparent: esFantasma, opacity: opacidad
+        });
+        const hull = new THREE.Mesh(geoHull, matSub);
+        hull.rotation.z = Math.PI / 2;
+        hull.position.y = 0.25;
+        barcoGroup.add(hull);
+
+        const vela = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.45, 0.35), matSub);
+        vela.position.set(0, 0.55, 0);
+        barcoGroup.add(vela);
+      } else {
+        const colores = { 4: 0x475569, 3: 0x64748b, 2: 0x94a3b8 };
+        const matCasco = new THREE.MeshStandardMaterial({ 
+          color: colores[lon] || 0x64748b, metalness: 0.4,
+          transparent: esFantasma, opacity: opacidad
+        });
+        const matCabina = new THREE.MeshStandardMaterial({ 
+          color: 0xcbd5e1,
+          transparent: esFantasma, opacity: opacidad
+        });
+
+        const casco = new THREE.Mesh(new THREE.BoxGeometry(lon - 0.15, 0.38, 0.72), matCasco);
+        casco.position.y = 0.28;
+        if (!esFantasma) casco.castShadow = true;
+        barcoGroup.add(casco);
+
+        const puente = new THREE.Mesh(new THREE.BoxGeometry(lon * 0.35, 0.35, 0.48), matCabina);
+        puente.position.set(0, 0.6, 0);
+        barcoGroup.add(puente);
+
+        const numTorretas = lon >= 4 ? 2 : 1;
+        for (let i = 0; i < numTorretas; i++) {
+          const posX = i === 0 ? (lon / 2) - 0.55 : -(lon / 2) + 0.55;
+          const torreta = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.2, 12), matCasco);
+          torreta.position.set(posX, 0.55, 0);
+          barcoGroup.add(torreta);
+        }
+      }
+
+      return barcoGroup;
+    };
+
+    // Función auxiliar para teñir un barco 3D de rojo hundido
+    const aplicarColorHundido = (grupo3D) => {
+      grupo3D.traverse((hijo) => {
+        if (hijo.isMesh) {
+          hijo.material = hijo.material.clone();
+          hijo.material.color.setHex(0xff1e42);
+          hijo.material.emissive.setHex(0x660011);
+        }
+      });
+    };
+
+    // Pre-construye ambos cementerios ocultos (Izquierda: bajas del Cliente | Derecha: bajas de la PC)
+    const preconstruirCementeriosOcultos = (flota) => {
+      modelosEnemigos3D.forEach((m) => scene.remove(m));
+      modelosEnemigos3D.clear();
+      modelosClienteHundidos3D.forEach((m) => scene.remove(m));
+      modelosClienteHundidos3D.clear();
+
+      // Margen exterior derecho (junto al Tablero de Tiros) y margen exterior izquierdo (junto al Tablero de Naves)
+      const margenDerechoTiros = OFFSET_TIROS_X + 5.8;
+      const margenIzquierdoFlota = OFFSET_FLOTA_X - 5.8;
+
+      flota.forEach((nave, idx) => {
+        const posZ = -4.0 + (idx * 1.32);
+
+        // 1. Cementerio de la PC (Extremo derecho)
+        const modeloEnemigoRojo = crearModeloNave3D(nave, false);
+        aplicarColorHundido(modeloEnemigoRojo);
+        modeloEnemigoRojo.position.set(margenDerechoTiros + (nave.longitud / 2), 0, posZ);
+        modeloEnemigoRojo.visible = false;
+        scene.add(modeloEnemigoRojo);
+        modelosEnemigos3D.set(nave.id, modeloEnemigoRojo);
+
+        // 2. Cementerio del Cliente (Extremo izquierdo, simétrico)
+        const modeloClienteRojo = crearModeloNave3D(nave, false);
+        aplicarColorHundido(modeloClienteRojo);
+        modeloClienteRojo.position.set(margenIzquierdoFlota - (nave.longitud / 2), 0, posZ);
+        modeloClienteRojo.visible = false;
+        scene.add(modeloClienteRojo);
+        modelosClienteHundidos3D.set(nave.id, modeloClienteRojo);
+      });
+    };
+
+    const revelarBarcoEnemigoHundido3D = (idNave) => {
+      const modelo = modelosEnemigos3D.get(idNave);
+      if (modelo) modelo.visible = true;
+    };
+
+    const revelarBarcoClienteHundido3D = (idNave) => {
+      // Mostrar el barco en el cementerio lateral izquierdo
+      const modeloCementerio = modelosClienteHundidos3D.get(idNave);
+      if (modeloCementerio) modeloCementerio.visible = true;
+
+      // También teñimos de rojo oscuro el barco dentro de nuestro tablero para indicar que se hundió
+      const modeloEnTablero = mapaNavesTableroCliente.get(idNave);
+      if (modeloEnTablero) aplicarColorHundido(modeloEnTablero);
+    };
+
+    const posicionarNaveEnTablero = (barcoGroup, lon, fila, col, horizontal) => {
+      const centroCol = horizontal ? col + (lon - 1) / 2 : col;
+      const centroFila = horizontal ? fila : fila + (lon - 1) / 2;
+      barcoGroup.position.set(OFFSET_FLOTA_X + (centroCol - 4.5), 0, (centroFila - 4.5));
+      barcoGroup.rotation.y = horizontal ? 0 : -Math.PI / 2;
+    };
+
+    const dibujarNave3D = (nave, fila, col, horizontal) => {
+      const barcoSolido = crearModeloNave3D(nave, false);
+      posicionarNaveEnTablero(barcoSolido, nave.longitud, fila, col, horizontal);
+      scene.add(barcoSolido);
+      navesCliente3D.push(barcoSolido);
+      mapaNavesTableroCliente.set(nave.id, barcoSolido);
+
+      for (let i = 0; i < nave.longitud; i++) {
+        const f = horizontal ? fila : fila + i;
+        const c = horizontal ? col + i : col;
+        ocupacionLocal[f][c] = true;
+      }
+    };
+
+    const esPosicionValidaPreview = (nave, fila, col, horizontal) => {
+      if (horizontal && col + nave.longitud > 10) return false;
+      if (!horizontal && fila + nave.longitud > 10) return false;
+
+      for (let i = 0; i < nave.longitud; i++) {
+        const f = horizontal ? fila : fila + i;
+        const c = horizontal ? col + i : col;
+        if (ocupacionLocal[f][c]) return false;
+      }
+      return true;
+    };
+
+    const colorearFantasma = (grupo, esValido) => {
+      const color = esValido ? 0x00f5d4 : 0xff2a55;
+      const emisivo = esValido ? 0x004433 : 0x550011;
+      grupo.traverse((hijo) => {
+        if (hijo.isMesh) {
+          hijo.material.color.setHex(color);
+          hijo.material.emissive.setHex(emisivo);
+        }
+      });
+    };
+
+    // Diseño 3D de Misil / Bomba
+    const marcarCasilla3D = (esTableroTiros, fila, col, exito) => {
+      const offsetX = esTableroTiros ? OFFSET_TIROS_X : OFFSET_FLOTA_X;
+      const proyectilGroup = new THREE.Group();
+
+      const matCuerpo = new THREE.MeshStandardMaterial({
+        color: exito ? 0xdc2626 : 0x475569,
+        metalness: 0.6,
+        roughness: 0.3,
+        emissive: exito ? 0x450a0a : 0x000000
+      });
+
+      const matPuntaYAletas = new THREE.MeshStandardMaterial({
+        color: exito ? 0xff9e00 : 0xe2e8f0,
+        metalness: 0.5,
+        roughness: 0.3,
+        emissive: exito ? 0x9a3412 : 0x000000
+      });
+
+      const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.48, 16), matCuerpo);
+      cuerpo.position.y = 0.48;
+      cuerpo.castShadow = true;
+      proyectilGroup.add(cuerpo);
+
+      const ojiva = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.25, 16), matPuntaYAletas);
+      ojiva.rotation.x = Math.PI;
+      ojiva.position.y = 0.15;
+      proyectilGroup.add(ojiva);
+
+      const cupula = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), matCuerpo);
+      cupula.position.y = 0.72;
+      proyectilGroup.add(cupula);
+
+      const aleta1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.04), matPuntaYAletas);
+      aleta1.position.y = 0.68;
+      proyectilGroup.add(aleta1);
+
+      const aleta2 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.42), matPuntaYAletas);
+      aleta2.position.y = 0.68;
+      proyectilGroup.add(aleta2);
+
+      if (exito) {
+        const matExplosion = new THREE.MeshStandardMaterial({
+          color: 0xff4500,
+          emissive: 0xff2200,
+          roughness: 0.2
+        });
+        const nucleoExplosion = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 1), matExplosion);
+        nucleoExplosion.position.y = 0.22;
+        nucleoExplosion.scale.set(1, 0.6, 1);
+        proyectilGroup.add(nucleoExplosion);
+      } else {
+        const matOnda = new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          emissive: 0x0284c7,
+          transparent: true,
+          opacity: 0.75
+        });
+        const ondaAgua = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.04, 8, 24), matOnda);
+        ondaAgua.rotation.x = Math.PI / 2;
+        ondaAgua.position.y = 0.14;
+        proyectilGroup.add(ondaAgua);
+      }
+
+      proyectilGroup.rotation.z = (Math.random() - 0.5) * 0.22;
+      proyectilGroup.rotation.x = (Math.random() - 0.5) * 0.22;
+
+      const alturaBase = (!esTableroTiros && exito) ? 0.35 : 0.05;
+      proyectilGroup.position.set(offsetX + (col - 4.5), alturaBase, (fila - 4.5));
+      scene.add(proyectilGroup);
+    };
+
+    // --- 4. GENERADOR DE DISEÑO GRÁFICO DE NAVES Y MODAL DE RESUMEN ---
+    const navesHundidasCliente = new Set();
+    const navesHundidasPC = new Set();
+    let nombreJugadorActual = 'Jugador';
+
+    const generarDisenoNaveSVG = (nave, estaHundida) => {
+      const ancho = nave.longitud * 26;
+      const colorCasco = estaHundida ? '#881337' : '#38bdf8';
+      const colorDetalle = estaHundida ? '#f43f5e' : '#e0f2fe';
+      const lineaTachado = estaHundida
+        ? `<line x1="2" y1="4" x2="${ancho - 2}" y2="32" stroke="#ff2a55" stroke-width="3" />
+           <line x1="2" y1="32" x2="${ancho - 2}" y2="4" stroke="#ff2a55" stroke-width="3" />`
+        : '';
+
+      if (nave.tipo.includes('Submarino')) {
+        return `
+          <svg width="${ancho}" height="36" viewBox="0 0 ${ancho} 36">
+            <rect x="2" y="14" width="${ancho - 4}" height="14" rx="7" fill="${colorCasco}" stroke="${colorDetalle}" stroke-width="1.5"/>
+            <rect x="${ancho * 0.38}" y="6" width="${ancho * 0.22}" height="9" rx="2" fill="${colorCasco}" stroke="${colorDetalle}" stroke-width="1.2"/>
+            <path d="M ${ancho * 0.48} 6 L ${ancho * 0.48} 2 L ${ancho * 0.54} 2" stroke="${colorDetalle}" stroke-width="1.8" fill="none"/>
+            ${lineaTachado}
+          </svg>`;
+      } else {
+        const torretaExtra = nave.longitud >= 4
+          ? `<circle cx="${ancho - 18}" cy="19" r="3.5" fill="${colorDetalle}"/>`
+          : '';
+        return `
+          <svg width="${ancho}" height="36" viewBox="0 0 ${ancho} 36">
+            <polygon points="2,15 ${ancho - 10},15 ${ancho - 2},21 ${ancho - 10},28 2,28" fill="${colorCasco}" stroke="${colorDetalle}" stroke-width="1.5"/>
+            <rect x="${ancho * 0.3}" y="8" width="${ancho * 0.32}" height="7" rx="1.5" fill="${colorDetalle}"/>
+            <circle cx="14" cy="19" r="3.5" fill="${colorDetalle}"/>
+            ${torretaExtra}
+            ${lineaTachado}
+          </svg>`;
+      }
+    };
+
+    const mostrarModalFinJuego = (ganoCliente) => {
+      const overlay = document.getElementById('modal-overlay');
+      const titulo = document.getElementById('modal-titulo');
+      const subtitulo = document.getElementById('modal-subtitulo');
+      const contJugador = document.getElementById('lista-flota-jugador');
+      const contPC = document.getElementById('lista-flota-pc');
+
+      document.getElementById('titulo-flota-jugador').innerText = `FLOTA DE ${nombreJugadorActual.toUpperCase()}`;
+
+      if (ganoCliente) {
+        titulo.innerText = '¡VICTORIA!';
+        titulo.className = 'titulo-victoria';
+        subtitulo.innerText = `¡Felicidades ${nombreJugadorActual}! Hundiste toda la flota enemiga.`;
+      } else {
+        titulo.innerText = '¡DERROTA!';
+        titulo.className = 'titulo-derrota';
+        subtitulo.innerText = 'La PC ha hundido todas tus embarcaciones.';
+      }
+
+      const construirListaHTML = (conjuntoHundidos) => {
+        return flotaDisponible.map((nave) => {
+          const hundida = conjuntoHundidos.has(nave.id);
+          return `
+            <div class="nave-card ${hundida ? 'hundida' : ''}">
+              <div class="nave-info">
+                <span class="nave-nombre">${nave.tipo}</span>
+                <span class="nave-longitud">${nave.longitud} casillas</span>
+              </div>
+              <div class="nave-preview">
+                ${generarDisenoNaveSVG(nave, hundida)}
+              </div>
+              <span class="badge-estado ${hundida ? 'badge-hundido' : 'badge-flote'}">
+                ${hundida ? 'Hundido' : 'A Flote'}
+              </span>
+            </div>
+          `;
+        }).join('');
+      };
+
+      contJugador.innerHTML = construirListaHTML(navesHundidasCliente);
+      contPC.innerHTML = construirListaHTML(navesHundidasPC);
+      overlay.style.display = 'flex';
+    };
+
+    // --- 5. LÓGICA DE ESTADOS, FANTASMA Y WEBSOCKET ---
+    const ws = new WebSocket('ws://localhost:8080');
+    let faseActual = 'CONECTANDO';
+    let flotaDisponible = [];
+    let indiceNaveActual = 0;
+    let esHorizontal = true;
+
+    let naveFantasma = null;
+    let ultimaCeldaHover = null;
+
+    const prepararNaveFantasma = () => {
+      if (naveFantasma) {
+        scene.remove(naveFantasma);
+        naveFantasma = null;
+      }
+      if (faseActual === 'COLOCANDO' && indiceNaveActual < flotaDisponible.length) {
+        const naveActual = flotaDisponible[indiceNaveActual];
+        naveFantasma = crearModeloNave3D(naveActual, true);
+        naveFantasma.visible = false;
+        scene.add(naveFantasma);
+
+        if (ultimaCeldaHover) {
+          actualizarPosicionFantasma(ultimaCeldaHover.fila, ultimaCeldaHover.col);
+        }
+      }
+    };
+
+    const actualizarPosicionFantasma = (fila, col) => {
+      if (!naveFantasma || faseActual !== 'COLOCANDO') return;
+      const naveActual = flotaDisponible[indiceNaveActual];
+      naveFantasma.visible = true;
+      posicionarNaveEnTablero(naveFantasma, naveActual.longitud, fila, col, esHorizontal);
+      
+      const valido = esPosicionValidaPreview(naveActual, fila, col, esHorizontal);
+      colorearFantasma(naveFantasma, valido);
+    };
+
+    const estadoTxt = document.getElementById('estado-txt');
+    const controlesColocacion = document.getElementById('controles-colocacion');
+    const btnRotar = document.getElementById('btn-rotar');
+    const btnRandom = document.getElementById('btn-random');
+    const btnConfirmarFlota = document.getElementById('btn-confirmar-flota');
+
+    document.getElementById('btn-conectar').onclick = () => {
+      nombreJugadorActual = document.getElementById('nombre-input').value.trim() || 'Jugador';
+      document.getElementById('login-box').style.display = 'none';
+      ws.send(JSON.stringify({ tipo: 'iniciar_solicitud', nombre: nombreJugadorActual }));
+      estadoTxt.innerText = 'Solicitud enviada al servidor UDP...';
+    };
+
+    const alternarOrientacion = () => {
+      esHorizontal = !esHorizontal;
+      btnRotar.innerText = `Orientación: ${esHorizontal ? 'HORIZONTAL' : 'VERTICAL'} (R)`;
+      if (ultimaCeldaHover) {
+        actualizarPosicionFantasma(ultimaCeldaHover.fila, ultimaCeldaHover.col);
+      }
+    };
+    btnRotar.onclick = alternarOrientacion;
+    window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'r') alternarOrientacion(); });
+
+    btnRandom.onclick = () => {
+      ws.send(JSON.stringify({ tipo: 'colocar_random_ui' }));
+    };
+
+    const finalizarColocacionYArrancar = () => {
+      faseActual = 'ESPERA';
+      if (naveFantasma) {
+        scene.remove(naveFantasma);
+        naveFantasma = null;
+      }
+      controlesColocacion.style.display = 'none';
+      estadoTxt.innerText = 'Flota lista. Esperando sorteo de turno del Servidor...';
+      ws.send(JSON.stringify({ tipo: 'flota_lista_ui' }));
+    };
+    btnConfirmarFlota.onclick = finalizarColocacionYArrancar;
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.tipo === 'fase_colocacion') {
+        flotaDisponible = msg.flota;
+        indiceNaveActual = 0;
+        faseActual = 'COLOCANDO';
+        controlesColocacion.style.display = 'block';
+        btnRotar.style.display = 'inline-block';
+        btnConfirmarFlota.style.display = 'none';
+        
+        // Se pre-construyen ocultos ambos cementerios (izquierdo y derecho)
+        preconstruirCementeriosOcultos(flotaDisponible);
+
+        const nave = flotaDisponible[0];
+        estadoTxt.innerText = `Coloca tu ${nave.tipo} (${nave.longitud} casillas) manualmente o usa el botón aleatorio.`;
+        prepararNaveFantasma();
+      }
+
+      else if (msg.tipo === 'resultado_colocar') {
+        if (!msg.exito) {
+          estadoTxt.innerText = `Posición inválida o superpuesta. Intenta en otra casilla.`;
+          return;
+        }
+        dibujarNave3D(msg.nave, msg.fila, msg.col, msg.esHorizontal);
+        indiceNaveActual = msg.indiceSiguiente;
+
+        if (indiceNaveActual < msg.totalNaves) {
+          const sig = flotaDisponible[indiceNaveActual];
+          estadoTxt.innerText = `Coloca tu ${sig.tipo} (${sig.longitud} casillas) en tu tablero.`;
+          prepararNaveFantasma();
+        } else {
+          finalizarColocacionYArrancar();
+        }
+      }
+
+      else if (msg.tipo === 'resultado_colocar_random') {
+        limpiarNavesCliente3D();
+        if (naveFantasma) {
+          scene.remove(naveFantasma);
+          naveFantasma = null;
+        }
+
+        msg.posiciones.forEach((p) => {
+          dibujarNave3D(p.nave, p.fila, p.col, p.esHorizontal);
+        });
+
+        indiceNaveActual = flotaDisponible.length;
+        btnRotar.style.display = 'none';
+        btnConfirmarFlota.style.display = 'inline-block';
+        estadoTxt.innerText = '¡Flota generada al azar! Puedes volver a mezclarla o hacer clic en "Confirmar e Iniciar".';
+      }
+
+      else if (msg.tipo === 'turno_cliente') {
+        faseActual = 'MI_TURNO';
+        estadoTxt.innerText = `¡TU TURNO! Haz clic en el Tablero de Tiros (Derecha). Tiros restantes: ${msg.tirosRestantes}`;
+      }
+
+      else if (msg.tipo === 'resultado_tiro') {
+        marcarCasilla3D(true, msg.fila, msg.col, msg.exito);
+        let info = `Disparo en [${msg.fila}, ${msg.col}]: ${msg.exito ? '¡ACIERTO (X)!' : 'Agua (0)'}. `;
+        
+        if (msg.barcoHundido) {
+          navesHundidasPC.add(msg.idNave);
+          revelarBarcoEnemigoHundido3D(msg.idNave);
+        }
+
+        if (msg.juegoTerminado) {
+          faseActual = 'FIN';
+          estadoTxt.innerText = `¡VICTORIA! Hundiste toda la flota del servidor.`;
+          mostrarModalFinJuego(true);
+          return;
+        }
+
+        if (msg.tirosRestantes > 0) {
+          faseActual = 'MI_TURNO';
+          estadoTxt.innerText = info + `Te quedan ${msg.tirosRestantes} tiros.`;
+        } else {
+          faseActual = 'ESPERA';
+          estadoTxt.innerText = info + `Turno de la PC...`;
+        }
+      }
+
+      else if (msg.tipo === 'ataque_pc') {
+        marcarCasilla3D(false, msg.fila, msg.col, msg.exito);
+        let info = `La PC atacó [${msg.fila}, ${msg.col}]: ${msg.exito ? '¡Impactó tu nave!' : 'Falló en el agua'}.`;
+        
+        // Si la PC hunde un barco nuestro, aparece en rojo en el cementerio izquierdo
+        if (msg.barcoHundido) {
+          navesHundidasCliente.add(msg.idNave);
+          revelarBarcoClienteHundido3D(msg.idNave);
+        }
+        estadoTxt.innerText = info;
+      }
+
+      else if (msg.tipo === 'fin_juego') {
+        faseActual = 'FIN';
+        estadoTxt.innerText = `¡DERROTA! Todas tus naves fueron hundidas. Ganador: ${msg.ganador}`;
+        mostrarModalFinJuego(false);
+      }
+    };
+
+    // --- 6. INTERACCIÓN CON EL MOUSE (RAYCASTER: HOVER Y CLIC) ---
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    window.addEventListener('pointermove', (e) => {
+      if (faseActual !== 'COLOCANDO' || !naveFantasma) return;
+
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObjects(casillasFlota);
+      if (intersects.length > 0) {
+        const { fila, col } = intersects[0].object.userData;
+        ultimaCeldaHover = { fila, col };
+        actualizarPosicionFantasma(fila, col);
+      } else {
+        naveFantasma.visible = false;
+        ultimaCeldaHover = null;
+      }
+    });
+
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      if (faseActual === 'COLOCANDO' && indiceNaveActual < flotaDisponible.length) {
+        const intersects = raycaster.intersectObjects(casillasFlota);
+        if (intersects.length > 0) {
+          const { fila, col } = intersects[0].object.userData;
+          ws.send(JSON.stringify({
+            tipo: 'colocar_barco_ui',
+            indiceNave: indiceNaveActual,
+            fila,
+            col,
+            esHorizontal
+          }));
+        }
+      }
+      else if (faseActual === 'MI_TURNO') {
+        const intersects = raycaster.intersectObjects(casillasTiros);
+        if (intersects.length > 0) {
+          const celda = intersects[0].object;
+          if (celda.userData.atacada) return;
+          celda.userData.atacada = true;
+          faseActual = 'ESPERA';
+          ws.send(JSON.stringify({
+            tipo: 'disparar_ui',
+            fila: celda.userData.fila,
+            col: celda.userData.col
+          }));
+        }
+      }
+    });
+
+    // --- 7. ANIMACIÓN Y RESIZE ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    };
+    animate();
+  </script>
 </body>
 </html>
